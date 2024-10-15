@@ -1,0 +1,518 @@
+;	ipl.a30
+;	Program IPL.A30 for R8C/Tiny
+;	Date	2004/3/17 .. 2004/5/4
+;	Copyright (c) 2004 by AKIYA.
+;	All rights reserved.
+
+IPLSIO	.equ	0
+SYSCLK	.equ	20000000
+CPUCLK	.equ	5000000	; for flash
+IPLBPS	.equ	38400
+
+CHKSUM	.equ	0ffh
+
+ISTACKSIZE	.equ	10h
+
+DIRINT		.equ	0fddch
+udi_int		.equ	DIRINT+(4*0)		; 0fddch
+over_int	.equ	DIRINT+(4*1)		; 0fde0h
+brki_int	.equ	DIRINT+(4*2)		; 0fde4h
+addr_int	.equ	DIRINT+(4*3)		; 0fde8h
+step_int	.equ	DIRINT+(4*4)		; 0fdech
+wdt_int		.equ	DIRINT+(4*5)		; 0fdf0h
+dbc_int		.equ	DIRINT+(4*6)		; 0fdf4h
+nmi_int		.equ	DIRINT+(4*7)		; 0fdf8h
+res_int		.equ	DIRINT+(4*8)		; 0fdfch
+
+	.include	sfr_r811.inc
+
+;-------------------------------------------------------
+;   flash memory control register
+;-------------------------------------------------------
+fmr0		.equ	01b7h
+fmr00		.btequ	0,fmr0		; ry/by status (0:busy,1:ready)
+fmr01		.btequ	1,fmr0		; cpu re-write mode (0:disable,1:enable)
+fmr02		.btequ	2,fmr0		; block 0/1 re-write (0:disable,1:enable)
+fmstp		.btequ	3,fmr0		; flash stop
+fmr06		.btequ	6,fmr0		; program status (0:ok,1:error)
+fmr07		.btequ	7,fmr0		; erase status (0:ok,1:error)
+;
+fmr1		.equ	01b5h
+fmr11		.btequ	1,fmr1		; ew1 mode select (0:ew0,1:ew1)
+;
+fmr4		.equ	01b3h
+fmr40		.btequ	0,fmr4		; erase suspend (0:disable,1:enable)
+fmr41		.btequ	1,fmr4		; erase suspend request (0:re-start,1:suspend request)
+fmr46		.btequ	6,fmr4		; erase status (0:erase active,1:suspend)
+;
+
+ .if IPLSIO == 0
+;-------------------------------------------------------
+;   Interrupt control registers
+;-------------------------------------------------------
+ipl_tic		.equ	s0tic		; UART0 transmit interrupt control register
+ipl_ilvl0_tic	.btequ	ilvl0_s0tic	; Interrupt priority level select bit
+ipl_ilvl1_tic	.btequ	ilvl1_s0tic	;
+ipl_ilvl2_tic	.btequ	ilvl2_s0tic	;
+ipl_ir_tic	.btequ	ir_s0tic	; Interrupt request bit
+;
+ipl_ric		.equ	s0ric		; UART0 receive interrupt control register
+ipl_ilvl0_ric	.btequ	ilvl0_s0ric	; Interrupt priority level select bit
+ipl_ilvl1_ric	.btequ	ilvl1_s0ric	;
+ipl_ilvl2_ric	.btequ	ilvl2_s0ric	;
+ipl_ir_ric	.btequ	ir_s0ric	; Interrupt request bit
+;
+;-------------------------------------------------------
+;   UART0
+;-------------------------------------------------------
+ipl_mr		.equ	u0mr		; UART0 transmit/receive mode register
+ipl_smd0_mr	.btequ	smd0_u0mr	; Serial I/O mode select bit
+ipl_smd1_mr	.btequ	smd1_u0mr	;
+ipl_smd2_mr	.btequ	smd2_u0mr	;
+ipl_ckdir_mr	.btequ	ckdir_u0mr	; Internal/external clock select bit
+ipl_stps_mr	.btequ	stps_u0mr	; Stop bit length select bit
+ipl_pry_mr	.btequ	pry_u0mr	; Odd/even parity select bit
+ipl_prye_mr	.btequ	prye_u0mr	; Parity enable bit
+;
+ipl_brg		.equ	u0brg		; UART0 bit rate generator
+									; Use "MOV" instruction when writing to this register.
+;
+ipl_tb		.equ	u0tb		; UART0 transmit buffer register
+									; Use "MOV" instruction when writing to this register.
+ipl_tbl		.equ	u0tbl		;       Low
+ipl_tbh		.equ	u0tbh		;       High
+;
+ipl_c0		.equ	u0c0		; UART0 transmit/receive control register0
+ipl_clk0_c0	.btequ	clk0_u0c0	; BRG count source select bit
+ipl_clk1_c0	.btequ	clk1_u0c0	;
+ipl_txept_c0	.btequ	txept_u0c0	; Transmit register empty flag
+ipl_nch_c0	.btequ	nch_u0c0	; Data output select bit
+ipl_ckpol_c0	.btequ	ckpol_u0c0	; CLK polarity select bit
+ipl_uform_c0	.btequ	uform_u0c0	; Transfer format select bit
+;
+ipl_c1		.equ	u0c1		; UART0 transmit/receive control register1
+ipl_te_c1	.btequ	te_u0c1		; Transmit enable bit
+ipl_ti_c1	.btequ	ti_u0c1		; Transmit buffer empty flag
+ipl_re_c1	.btequ	re_u0c1		; Receive enable bit
+ipl_ri_c1	.btequ	ri_u0c1		; Receive complete flag
+;
+ipl_rb		.equ	u0rb		; UART0 receive buffer register
+ipl_rbl		.equ	u0rbl		;       Low
+ipl_rbh		.equ	u0rbh		;       High
+ipl_oer_rb	.btequ	oer_u0rb	; Overrun error flag
+ipl_fer_rb	.btequ	fer_u0rb	; Framing error flag
+ipl_per_rb	.btequ	per_u0rb	; Parity error flag
+ipl_sum_rb	.btequ	sum_u0rb	; Error sum flag
+
+;ipl_ucon	.equ	ucon		; UART transmit/receive control register2
+ipl_irs		.btequ	u0irs		; UART0 transmit interrupt cause select bit
+;ipl_irs	.btequ	u1irs		; UART1 transmit interrupt cause select bit
+ipl_rrm		.btequ	u0rrm		; UART0 continuous receive mode enable bit
+;ipl_txdsel	.btequ	txd1sel		; Port P00/TxD11 select bit
+;ipl_rxden	.btequ	rxd1en		; TxD10/RxD1 select bit
+ .endif
+
+	.section	stack,data
+	.org	400h
+	.blkb	ISTACKSIZE
+istack_top:
+
+;====================================================================
+; Interrupt section start
+;---------------------------------------------------------------------
+	.section	interrupt
+	.org	0fe10h
+	.word	ipl_fnc_0
+start:
+;---------------------------------------------------------------------
+; after reset,this program will start
+;---------------------------------------------------------------------
+	ldc	#istack_top,isp		;set istack pointer
+;	mov.b	#02h,0ah
+;	mov.b	#00h,04h		;set processer mode 
+;	mov.b	#00h,0ah
+
+	mov.b	#0,a0
+	ldc	a0,fb		;(for debuger ?)
+	.fb	0
+	ldc	a0,sb
+	.sb	0
+
+	bset	prc0
+
+	or.b	#00101000b,cm1		; Main clock enable (1/1)
+	and.b	#00111111b,cm1		;
+	and.b	#10011111b,cm0		;
+	mov.b	#(500/10)/5+1,r0l	; 500usec/(1/100kHz)*1000000
+?:					;
+	dec.b	r0l			;1
+	jne	?-			;2+2
+	mov.b	#00000011b,ocd		; clock check enable
+	mov.b	#10,r0l
+?:
+	btst	ocd3
+	jnz	?-
+	dec.b	r0l
+	jne	?-
+	and.b	#11111100b,ocd		; clock check disable
+	bclr	ocd2			;
+	bclr	prc0
+
+;
+;address
+; 0fddch must be interrupt jump code
+;    :      :
+; 0fdd8h must be interrupt jump code
+; 0fdfch must be program jump cord (indicator see 0fdffh)
+; 0fe00h (unused)
+;    :
+; 0fe10h ipl program top
+;    :
+; 0ffdch 0fddch & 00h
+;    :      :
+; 0fff8h 0fdf8h & 00h
+; 0fffch 0fe10h & 00h ipl start address
+;
+;ipl process
+; 1. if {pc} lower than {start} then goto [4] else [2].
+; 2. if [0fdffh] equal 0ffh then goto [3] else jump to {0fdfch}.
+; 3. copy {1f0h} byte from {0fe10h} to {410h} and jump to {410h}.
+; 4. prompt "#" out and wait command.
+;
+;ipl command's
+; "W" flash erase and ipl write to flash.
+;  00 display is ok other than error detect.
+; "Z" flash erase.
+;  0 display is ok other than error detect.
+; "S" s format record write to flash. (S2 only support.)
+;  S2o display is ok, S2x display is ng. other no-support.
+;
+
+ipl_fnc:
+	stc	pc,r2r0
+	cmp.w	#topof interrupt,r0
+	jleu	ipl_fnc_1		; now ram area !
+
+	;* program indicator check *
+	cmp.b	#0ffh,res_int+3
+	jne	res_int
+
+ipl_fnc_0:	;<ent> i=0,u=0
+	;* copy to ram area *
+	mov.w	#topof interrupt,a0
+	mov.b	#0,r1h
+	mov.w	#topof stack + sizeof stack,a1
+	mov.w	#10000h-(topof interrupt),r3
+	smovf.b	
+	jmp.a	topof stack + sizeof stack
+
+	;* run ipl *
+ipl_fnc_1:
+
+	;* clock change to 1/4 *
+	bset	prc0
+	bset	cm17		; 1/4 (20MHz/4=5MHz or 16MHz/4=4MHz)
+	bclr	prc0
+
+	mov.b	#00000101b,ipl_mr		; parity none, stop 1bit, internal clock, 8bit data
+	mov.b	#00001000b,ipl_c0		; lsb farst, rise clock, txd cmos, clock 1/1
+	bclr	ipl_irs				; txd interrupt buffer empty
+	bclr	ipl_rrm				; continuous receive disable
+	mov.b	#(SYSCLK/(IPLBPS*16))-1,ipl_brg	; 20MHz/(31.25kHz*16div)-1
+	mov.w	ipl_rb,r0			; dummy read
+	mov.b	#00000111b,ipl_c1		; rx enable, tx enable
+
+	;* command loop */
+ipl_fnc_2:
+	mov.w	#0a0dh,r0	;CRLF
+	jsr	ipl_putc2	;
+ipl_fnc_2a:
+	mov.b	#'#',r0l
+	jsr	ipl_putc
+ipl_fnc_2b:
+	jsr	ipl_getchar
+	cmp.b	#' ',r0l
+	jltu	ipl_fnc_2b
+ipl_fnc_2c:
+	cmp.b	#'W',r0l
+	jeq	ipl_fnc_w	; flash clear with ipl write
+	cmp.b	#'Z',r0l
+	jeq	ipl_fnc_z	; flash clear without ipl write
+	cmp.b	#'S',r0l
+	jeq	ipl_fnc_s	; s type record
+ipl_fnc_q:
+	mov.b	#'?',r0l
+	jsr	ipl_putc
+	jmp.w	ipl_fnc_2
+
+	;* flash clear with ipl write *
+ipl_fnc_w:
+	jsr	ipl_getchar
+	cmp.b	#0dh,r0l
+	jne	ipl_fnc_q
+	;* erase *
+	jsr	ipl_fnc_z0
+	;* ipl write *
+	mov.w	#topof stack + sizeof stack,a0
+;-	mov.b	#0,r1h
+	mov.w	#topof interrupt,a1
+	mov.w	#10000h-(topof interrupt),r3
+	jsr	block_write_flash
+	jsr	ipl_fnc_z1
+	jmp.w	ipl_fnc_2
+
+	;* flash clear without ipl write *
+ipl_fnc_z:
+	jsr	ipl_getchar
+	cmp.b	#0dh,r0l
+	jne	ipl_fnc_q
+	;* erase *
+	jsr	ipl_fnc_z0
+	jmp.w	ipl_fnc_2
+
+ipl_fnc_z0:
+	mov.w	#0ffffh,a1
+	mov.b	#20h,r0h
+	mov.b	#0d0h,r0l
+	jsr	flash_cmd	;<ret> r0h=0:ok, 1:prg err, 2:era err, 3:cmd err
+ipl_fnc_z1:
+	mov.b	#'0',r0l
+	add.b	r0h,r0l
+	jmp.w	ipl_putc
+
+	;* write s record *
+ipl_fnc_s:
+	jsr	ipl_getchar
+	cmp.b	#'2',r0l
+	jeq	ipl_fnc_s2
+	;* other format *
+ipl_fnc_s0:
+	jsr	ipl_getchar
+	cmp.b	#0dh,r0l
+	jeq	ipl_fnc_2a
+	cmp.b	#'F',r0l
+	jle	ipl_fnc_s0
+	jmp.w	ipl_fnc_2c
+	;* S2 format *
+ipl_fnc_s2:
+	jsr	ipl_gethb
+	jc	ipl_fnc_s2d
+	mov.b	r0l,r0h		; check sum
+	sub.b	#3,r0l
+	mov.b	r0l,r1l
+	mov.b	#3,a0
+	mov.b	#0,a1
+ipl_fnc_s2a:
+	jsr	ipl_gethb
+	jc	ipl_fnc_s2d
+	add.b	r0l,r0h		; check sum
+	shl.w	#8,a1
+	or.b	r0l,a1
+	dec.w	a0
+	jne	ipl_fnc_s2a
+	mov.b	r1l,a0
+	dec.w	a0
+	jz	ipl_fnc_s2c
+ipl_fnc_s2b:
+	jsr	ipl_gethb
+	jc	ipl_fnc_s2d
+	add.b	r0l,r0h		; check sum
+	push.b	r0h
+	jsr	byte_write_flash
+	pop.b	r0h
+	jc	ipl_fnc_s2d	; error !
+	inc.w	a1
+	dec.w	a0
+	jnz	ipl_fnc_s2b
+ipl_fnc_s2c:
+	jsr	ipl_gethb
+	jc	ipl_fnc_s2d
+	add.b	r0l,r0h		; check sum
+	mov.b	#'o',r0l
+	cmp.b	#CHKSUM,r0h
+	jeq	ipl_fnc_s2e
+ipl_fnc_s2d:
+	mov.b	#'x',r0l
+ipl_fnc_s2e:
+	jsr	ipl_putc
+	jmp.w	ipl_fnc_s0
+
+;- put character 2 -
+; entry	 r0l=1st,r0h=2nd
+; return none.
+; break	 r0l
+ipl_putc2:
+	jsr	ipl_putc
+	mov.b	r0h,r0l		; continue
+
+;- put character -
+; entry	 r0l=data
+; return none.
+; break	 none.
+ipl_putc:
+	btst	ipl_ti_c1
+	jz	ipl_putc
+	bclr	ipl_ir_tic
+	mov.b	r0l,ipl_tbl
+	rts
+
+;- get hexadecimal byte -
+; entry	 none.
+; return r0l=data
+; break	 r0
+ipl_gethb:
+	push.b	r0h
+	jsr	ipl_gethb_1
+	jc	ipl_gethb_0
+	mov.b	r0l,r0h
+	jsr	ipl_gethb_1
+	jc	ipl_gethb_0
+	shl.b	#4,r0h
+	or.b	r0h,r0l
+ipl_gethb_0:
+	pop.b	r0h
+	rts
+ipl_gethb_1:
+	jsr	ipl_getc
+	sub.b	#'A',r0l
+	jpz	ipl_gethb_1a
+	add.b	#'A'-'0'-10,r0l
+ipl_gethb_1a:
+	add.b	#10,r0l
+	cmp.b	#16,r0l
+	rts
+
+;- get character with echo -
+; entry	 none.
+; return r0l=data
+; break	 r0l
+ipl_getchar:
+	jsr	ipl_getc
+	jsr	ipl_putc
+	cmp.b	#0dh,r0l
+	jne	ipl_getchar_0
+	mov.b	#0ah,r0l
+	jsr	ipl_putc
+	mov.b	#0dh,r0l
+ipl_getchar_0:
+	rts
+
+;- get character without echo -
+; entry	 none.
+; return r0l=data
+; break	 r0l
+ipl_getc:
+	btst	ipl_ri_c1
+	jz	ipl_getc
+	bclr	ipl_ir_ric
+	push.b	r0h		;!
+	mov.w	ipl_rb,r0
+	btst	15,r0
+	jz	ipl_getc_0
+	bclr	ipl_re_c1
+	pop.b	r0h		;!
+	bset	ipl_re_c1
+	jmp.w	ipl_getc
+ipl_getc_0:
+	pop.b	r0h		;!
+	rts
+
+;- block write flash -
+; entry	 a0=src address
+;	 a1=dst address
+;	 r3=write count
+; return flag c=0:ok,1:ng
+;	 r0h=result(0:ok,1:program error,2:erase error,3:command error,4:write address not 0ffh)
+; break	 r0,r3,a0,a1
+block_write_flash:
+	mov.b	[a0],r0l
+	jsr	byte_write_flash
+	jc	block_write_flash_0
+	inc.w	a0
+	inc.w	a1
+	add.w	#-1,r3	;sub.w	#1,r3
+	jnz	block_write_flash
+	fclr	c
+block_write_flash_0:
+	rts
+
+;- byte write flash -
+; entry	 a1=address
+;	 r0l=data
+; return flag c=0:ok,1:ng
+;	 r0h=result(0:ok,1:program error,2:erase error,3:command error,4:write address not 0ffh)
+; break	 r0h
+byte_write_flash:
+	cmp.b	#0ffh,[a1]
+	jne	byte_write_flash_1
+	jsr	byte_write_flash_0
+	jnc	byte_write_flash_2
+byte_write_flash_0:
+	mov.b	#40h,r0h
+	jsr	flash_cmd
+	cmp.b	#1,r0h
+	rts
+byte_write_flash_1:
+	mov.b	#4,r0h
+	fset	c
+byte_write_flash_2:
+	rts
+
+;- flash command -
+; entry	 a1=address
+;	 r1l=1st write data
+;	 r0l=2nd write data
+; return r0h=result(0:ok,1:program error,2:erase error,3:command error)
+; break	 r0h
+flash_cmd:	;<ent> a1=address, r0h=1st write data, r0l=2nd write data
+	;* flash re-write mode *
+	push.w	a0		;
+	mov.w	#fmr0*8+1,a0	;
+	bclr	[a0]		;bclr	fmr01
+	bset	[a0]		;bset	fmr01
+	inc.w	a0		;
+	bclr	[a0]		;bclr	fmr02
+	bset	[a0]		;bset	fmr02
+	;* command execute *
+	mov.b	r0h,[a1]
+	mov.b	r0l,[a1]
+?:	btst	fmr00
+	jz	?-
+	mov.b	fmr0,r0h
+	shl.b	#-6,r0h
+	jz	flash_cmd_0
+	mov.b	#50h,[a1]
+flash_cmd_0:
+	;* flash read array mode (enable) *
+	mov.b	#0ffh,0ffffh
+	bclr	[a0]		;bclr	fmr02
+	dec.w	a0		;
+	bclr	[a0]		;bclr	fmr01
+	pop.w	a0		;
+	rts
+
+;===============================================================
+; fixed vector section
+;---------------------------------------------------------------
+	.section	fvector,ROMDATA		; fixed vector table
+	.org	0ffdcH
+UDI:
+	.lword	udi_int
+OVER_FLOW:
+	.lword	over_int
+BRKI:
+	.lword	brki_int
+ADDRESS_MATCH:
+	.lword	addr_int
+SINGLE_STEP:
+	.lword	step_int
+WDT:
+	.lword	wdt_int
+DBC:
+	.lword	dbc_int
+NMI:
+	.lword	nmi_int
+RESET:
+	.lword	start
+
+	.end
